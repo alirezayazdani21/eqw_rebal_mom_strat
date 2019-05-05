@@ -1,0 +1,99 @@
+
+library(quantmod)
+library(PerformanceAnalytics)
+library(PortfolioAnalytics)
+library(xts)
+library(dplyr)
+library(tidyverse)
+
+##########################################
+#Shortlist
+symbols <-c("C","JPM","MS","BAC", #BIG BANKS
+  "AMZN","AAPL","MSFT",#BIG TECH
+  "PFE","MRK","NVS")#BIG PHARMA
+
+##########################################
+# get prices from yahoo
+levels <- list()
+getSymbols(symbols, src = 'yahoo', 
+           from = '2010-01-03',to='2018-12-28'
+)
+
+for(i in 1:length(symbols)) {
+  prices <- Ad(get(symbols[i]))
+  colnames(prices) <- symbols[i]
+  levels[[i]] <- prices
+}
+
+prices<-na.omit(do.call(cbind, levels))
+returns<-Return.calculate(prices) %>% na.omit(.)
+chart.Boxplot(returns)
+
+
+par(mfrow=c(2,1))
+plot(prices,legend.loc = "topleft")
+plot(returns,legend.loc = "bottomleft",lwd = 0.2)
+par(mfrow=c(1,1))
+
+corrplot::corrplot(cor(returns %>% as.data.frame(.)),
+                   method = "number",type = "lower")
+
+kmeans(prices %>% as.matrix(.) %>% t(.),3)[[1]] 
+kmeans(returns %>% as.matrix(.) %>% t(.),3)[[1]] 
+
+##########################################
+
+eq_weights<-c(rep(1/ncol(returns),ncol(returns)))
+
+portfolio1<-Return.portfolio(returns,
+                             weights=eq_weights,
+                             wealth.index = FALSE)
+
+charts.PerformanceSummary(portfolio1,col="red",legend.loc = "top")
+table.AnnualizedReturns(portfolio1)
+maxDrawdown(portfolio1)
+VaR(portfolio1)*100 #use quantile(portfolio1,0.05) instead
+
+
+##########################################
+
+portfolio2<-Return.portfolio(returns,
+                             weights=eq_weights,
+                             rebalance_on = "quarters",
+                             wealth.index = FALSE)
+
+charts.PerformanceSummary(portfolio2,col="red",legend.loc = "top")
+table.AnnualizedReturns(portfolio2)
+maxDrawdown(portfolio2)
+VaR(portfolio2)*100 #use quantile(portfolio2,0.05) instead
+
+##########################################
+sig<-lag.xts(lag.xts(prices,20)-lag.xts(prices,250))
+#going long the top 3
+nlong<-3
+sig_rank<-apply(sig,1,function(x)ifelse(rank(x)>ncol(sig)-nlong,1/nlong,0)) %>% t(.) %>% as.xts(.)
+
+portfolio3<-Return.portfolio(returns,
+                             weights=sig_rank,
+                             wealth.index = FALSE)
+
+charts.PerformanceSummary(portfolio3,col="red",legend.loc = "top")
+table.AnnualizedReturns(portfolio3)
+maxDrawdown(portfolio3)
+VaR(portfolio3)*100 #use quantile(portfolio3,0.05) instead
+
+##########################################
+##########################################
+
+ret_strats<-cbind.xts(portfolio1,portfolio2,portfolio3) %>% na.omit(.)
+colnames(ret_strats)<-c("equally_weighted","rebalanced","momentum")
+table.AnnualizedReturns(ret_strats)
+charts.PerformanceSummary(ret_strats,main ="",wealth.index = T)
+table.Distributions(ret_strats)
+AdjustedSharpeRatio(ret_strats)
+
+chart.RiskReturnScatter(ret_strats)
+chart.Boxplot(ret_strats)
+
+##########################################
+##########################################
